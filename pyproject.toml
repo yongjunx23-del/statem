@@ -14,6 +14,7 @@ classifiers = [
 
 [project.scripts]
 statem = "statem.cli:main"
+statem-harness = "statem.harness_bridge:main"
 
 [tool.setuptools.packages.find]
 include = ["statem*"]
