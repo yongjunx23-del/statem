@@ -11,8 +11,9 @@ requirements of StateM.
 
 ## Start or resume
 
-1. Use a shared StateM runbook; `examples/deepseek-coding-agent.yaml` is a useful
-   reference but not a required host format.
+1. Prefer the shared `examples/harness-coding-agent.yaml` runbook. The older
+   `examples/deepseek-coding-agent.yaml` remains a DeepSeek-focused compatibility
+   example, not the canonical harness definition.
 2. Validate with `statem validate <spec> --json`.
 3. Start/resume with `statem start <spec> --run-id <id> --json`.
 4. Before acting, run `statem cur --json`.
@@ -21,16 +22,17 @@ requirements of StateM.
 
 ## Host-neutral bridge
 
-A DeepSeek-oriented harness should consume:
+A DeepSeek-oriented harness should consume the same stable CLI as every other host:
 
 ```bash
-python3 -m statem.harness_bridge context  --model deepseek-v4-flash
-python3 -m statem.harness_bridge decision --model deepseek-v4-flash
-python3 -m statem.harness_bridge compact  --model deepseek-v4-flash
+statem-harness context  --model deepseek-v4-flash
+statem-harness decision --model deepseek-v4-flash
+statem-harness compact  --model deepseek-v4-flash
 ```
 
-Replace the model id with `deepseek-v4-pro` for Pro. The bridge auto-selects the
-appropriate profile while preserving the same StateM graph and gates.
+`python3 -m statem.harness_bridge ...` is equivalent. Replace the model id with
+`deepseek-v4-pro` for Pro. The bridge auto-selects the appropriate profile while
+preserving the same StateM graph and gates.
 
 ## DeepSeek execution policy
 
