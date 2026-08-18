@@ -1,129 +1,89 @@
-# StateM + DeepSeek V4 for OpenCode
+# StateM adapter for OpenCode
 
-This integration turns StateM into a lightweight execution harness around
-DeepSeek V4-Pro or V4-Flash when they are used through OpenCode.
+OpenCode is one example host for the host-neutral StateM harness bridge.
 
-It is intentionally split into two layers:
+The reusable contract lives in:
 
-1. `examples/deepseek-coding-agent.yaml` provides the model-independent workflow
-   (`start -> plan -> execute -> verify -> self_review -> repair/handoff`).
-2. `statem_deepseek.js` is an OpenCode plugin that injects the active StateM node
-   into the model system prompt, preserves StateM state across compaction, and
-   continues unfinished runs when an OpenCode session becomes idle.
-
-The DeepSeek-specific policy follows the public StateM evaluation pattern: keep
-base workflow semantics stable, add a bounded model-specific self-review layer,
-prefer fresh consumer-facing evidence, and do not churn on an already-passing
-candidate without concrete contradictory evidence.
-
-## Requirements
-
-- Python 3.11+
-- StateM installed (`python3 -m pip install -e /path/to/statem`)
-- OpenCode with its DeepSeek provider configured
-- `deepseek-v4-flash` or `deepseek-v4-pro` selected in OpenCode
-
-DeepSeek V4-Pro and V4-Flash use the same harness. The plugin auto-detects the
-model ID and selects a `pro` or `flash` behavior profile. Override detection with:
-
-```bash
-export STATEM_DEEPSEEK_PROFILE=flash   # or pro, default: auto
+```text
+python3 -m statem.harness_bridge
 ```
 
-## Install as an OpenCode plugin
+and is documented in `integrations/harness/README.md`. The OpenCode plugin only
+maps OpenCode lifecycle events onto that contract; it contains no DeepSeek-only
+state-machine logic.
+
+## Files
+
+- `statem_harness.js` — generic OpenCode adapter;
+- `statem_deepseek.js` — backward-compatible entry point for existing installs;
+  it simply exports the generic adapter under the old DeepSeek plugin name.
+
+## Install
 
 Project-local:
 
 ```bash
 mkdir -p .opencode/plugins .opencode/skills
-ln -sfn /path/to/statem/integrations/opencode/statem_deepseek.js \
-  .opencode/plugins/statem-deepseek.js
-ln -sfn /path/to/statem/plugins/statem-deepseek/skills/statem-deepseek \
-  .opencode/skills/statem-deepseek
+ln -sfn /path/to/statem/integrations/opencode/statem_harness.js \
+  .opencode/plugins/statem-harness.js
+ln -sfn /path/to/statem/plugins/statem-harness/skills/statem-harness \
+  .opencode/skills/statem-harness
 ```
+
+Existing DeepSeek-specific symlinks may continue to point at
+`statem_deepseek.js`; that path is kept as a compatibility wrapper.
 
 Global:
 
 ```bash
 mkdir -p ~/.config/opencode/plugins ~/.config/opencode/skills
-ln -sfn /path/to/statem/integrations/opencode/statem_deepseek.js \
-  ~/.config/opencode/plugins/statem-deepseek.js
-ln -sfn /path/to/statem/plugins/statem-deepseek/skills/statem-deepseek \
-  ~/.config/opencode/skills/statem-deepseek
+ln -sfn /path/to/statem/integrations/opencode/statem_harness.js \
+  ~/.config/opencode/plugins/statem-harness.js
+ln -sfn /path/to/statem/plugins/statem-harness/skills/statem-harness \
+  ~/.config/opencode/skills/statem-harness
 ```
 
-OpenCode loads local plugins automatically from `.opencode/plugins/` and skills
-from `.opencode/skills/`.
+## Behavior
 
-## Start a run
+Before a model turn, the adapter calls the bridge `snapshot` contract and appends
+`system_context` when an active StateM run exists. The selected model ID is passed
+to the bridge so `auto` can choose a model-specific profile when available.
+DeepSeek V4-Flash/Pro therefore receive their reference profiles, while other
+models receive the generic profile.
 
-From the repository you want DeepSeek to work on:
+When OpenCode emits `session.idle`, the adapter consumes the bridge continuation
+decision. It keeps an unfinished run moving in the same session but pauses when:
+
+- StateM reaches a terminal state;
+- the bridge returns `decision=stop`;
+- the per-cycle continuation budget is exhausted; or
+- the StateM `entry_id` remains unchanged for the configured stagnation limit.
+
+During compaction it preserves the bridge `compaction_context`.
+
+The adapter never runs `statem goto` itself.
+
+## Configuration
+
+Generic controls:
 
 ```bash
-cp /path/to/statem/examples/deepseek-coding-agent.yaml statem.yaml
-statem validate statem.yaml
-statem start statem.yaml --run-id my-task
-opencode
+export STATEM_HARNESS_PROFILE=auto
+export STATEM_HARNESS_MAX_CONTINUATIONS=12
+export STATEM_HARNESS_MAX_STAGNANT_TURNS=3
 ```
 
-Then ask OpenCode to use the `statem-deepseek` skill, or simply give it the task.
-When an active `.statem` run exists, the plugin injects the current StateM state
-on every DeepSeek turn.
-
-## What the plugin enforces
-
-### Per-turn state anchoring
-
-For DeepSeek V4-Pro/Flash calls, `experimental.chat.system.transform` appends:
-
-- current StateM node;
-- legal outgoing states;
-- current node prompt;
-- the Flash/Pro review policy;
-- the rule that transitions happen only through `statem goto`.
-
-The text is merged into the first system block instead of creating a separate
-system message.
-
-### Auto-loop on `session.idle`
-
-If OpenCode goes idle while a StateM run is still active and non-terminal, the
-plugin sends a continuation prompt to the same session. It stops when:
-
-- the StateM node is terminal (`handoff`, `done`, `complete`, etc.);
-- there are no outgoing edges;
-- the state fails to advance for three consecutive agent turns; or
-- `STATEM_DEEPSEEK_MAX_CONTINUATIONS` is reached (default `12`).
-
-The plugin never calls `statem goto` itself. The model remains responsible for
-satisfying gates and explicitly moving the StateM pointer.
-
-### Compaction
-
-During OpenCode compaction the plugin adds a short reminder containing the
-current StateM node and tells the resumed model to recover with `statem cur` and
-`statem history`.
-
-## Flash vs Pro
-
-Both profiles use the same state graph and verification contract.
-
-- **Flash** is biased toward narrow, tool-driven passes and early deterministic
-  verification. It explicitly discourages repeated re-analysis after checks pass.
-- **Pro** allows deeper architecture/review reasoning but retains the same bounded
-  self-review rule so additional intelligence does not turn into unbounded churn.
-
-Model selection and thinking/effort settings remain OpenCode/provider concerns;
-this plugin does not rewrite the selected model or provider request parameters.
-
-## Safety / cost controls
-
-The auto-loop has two independent brakes:
+If OpenCode cannot expose a model ID to a lifecycle event, the host can provide:
 
 ```bash
-export STATEM_DEEPSEEK_MAX_CONTINUATIONS=8
-export STATEM_DEEPSEEK_PROFILE=flash
+export STATEM_HARNESS_ASSUME_MODEL=deepseek-v4-flash
 ```
 
-If the StateM entry does not change after three model turns, auto-loop pauses and
-shows a warning toast rather than burning tokens indefinitely.
+`STATEM_PYTHON` can select the Python executable used to invoke the bridge.
+
+## DeepSeek example
+
+For DeepSeek V4-Flash or V4-Pro, keep the shared runbook unchanged and let the
+bridge select `deepseek-flash` or `deepseek-pro` from the model ID. See
+`integrations/harness/examples/deepseek_harness_example.py` for the same pattern
+expressed without any OpenCode API dependency.
