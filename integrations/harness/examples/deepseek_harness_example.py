@@ -13,7 +13,7 @@ The surrounding harness remains responsible for actually calling DeepSeek and
 for feeding a continuation prompt back into the same session.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,6 @@ class StateMHarnessAdapter:
         data = self._snapshot(model_id)
         if not data.get("managed"):
             return None
-        self._observe_entry(data.get("entry_id"))
         return str(data.get("system_context") or "") or None
 
     def on_idle(self, model_id: str) -> dict[str, Any]:
