@@ -13,6 +13,7 @@
     "cli"
   ],
   "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Statem",
     "shortDescription": "Stateful runbooks for long agent runs.",
@@ -31,4 +32,3 @@
     "brandColor": "#2563EB"
   }
 }
-
