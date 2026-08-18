@@ -1,0 +1,124 @@
+name: deepseek-coding-agent-loop
+initial: start
+
+nodes:
+  start:
+    prompt: |
+      Initialize from durable project state before solving. Read the task, relevant
+      repository rules, progress.md when present, and recent StateM history. Inspect
+      the implementation surface before forming a plan. Do not use chat history as
+      the sole source of progress.
+    before_transfer:
+      type: checklist
+      items:
+        - Task and repository rules were read
+        - Relevant implementation files were inspected
+        - Existing tests or consumer-facing behavior were identified
+
+  plan:
+    prompt: |
+      Produce a compact execution plan tied to observable success criteria. Identify
+      the smallest affected surface, concrete verification commands, and any semantic
+      or numerical invariants that must remain true. Avoid speculative redesign unless
+      the task requires it.
+    before_transfer:
+      type: checklist
+      items:
+        - Scope is explicit and minimal
+        - Success criteria are observable
+        - Verification steps are identified
+        - Important invariants or compatibility constraints are recorded
+
+  execute:
+    prompt: |
+      Implement the current plan. Keep edits scoped and preserve existing semantics
+      outside the requested change. When the concrete task reveals a reproducible
+      regression condition, add it as a StateM dynamic check so it is enforced before
+      leaving this state or the following verification state.
+    before_transfer:
+      type: checklist
+      items:
+        - Implementation matches the current plan or deviations are recorded
+        - No unrelated files were changed intentionally
+        - Newly discovered regression conditions were captured when practical
+
+  verify:
+    prompt: |
+      Verify through the same interface the eventual consumer will use. Prefer fresh,
+      deterministic checks over inspection-only confidence. Exercise the exact changed
+      behavior, then run the smallest relevant regression suite. Treat a failing check
+      as evidence that requires repair, not as a reason to weaken the acceptance rule.
+    before_transfer:
+      type: checklist
+      items:
+        - Exact changed behavior was exercised through a consumer-facing interface
+        - Relevant deterministic tests or checks pass
+        - Fresh evidence was used rather than only logs or cached output
+        - Any skipped verification is documented as a blocker or risk
+
+  self_review:
+    prompt: |
+      Perform one bounded review pass. Compare the implementation and verification
+      evidence against the task contract. Look for one concrete contradiction or
+      missing acceptance condition; do not broaden the solve or repeatedly rewrite a
+      passing candidate without new evidence. If a fixable issue exists, route to
+      repair. Otherwise hand off.
+    before_transfer:
+      type: checklist
+      items:
+        - Task contract was compared against the implemented behavior
+        - At most one bounded countercheck was used unless a concrete failure created new evidence
+        - No passing candidate was changed without concrete contradictory evidence
+        - Remaining risks are explicit enough for handoff
+
+  repair:
+    prompt: |
+      Repair only the concrete defect found by verification or self-review. Preserve
+      the working parts of the candidate. Add or retain a regression check for the
+      defect when practical, then return to verification rather than declaring success
+      directly from repair.
+    before_transfer:
+      type: checklist
+      items:
+        - Repair addresses a concrete observed defect
+        - Unrelated working behavior was preserved
+        - A regression check exists when the failure is reproducible
+
+  handoff:
+    prompt: |
+      Return control to the user with a concise evidence-grounded summary: what changed,
+      what was verified, the current StateM run/state, and any remaining risks or
+      follow-ups. Do not claim checks that were not actually run.
+
+edges:
+  - from: start
+    to: plan
+    condition: Initial context is loaded.
+
+  - from: plan
+    to: execute
+    condition: The plan is concrete enough to execute.
+
+  - from: execute
+    to: verify
+    condition: The implementation is ready for verification.
+
+  - from: verify
+    to: repair
+    condition: Verification found a concrete defect.
+
+  - from: verify
+    to: self_review
+    condition: Verification evidence passes.
+
+  - from: self_review
+    to: repair
+    condition: Review found a concrete fixable issue.
+
+  - from: self_review
+    to: handoff
+    condition: Review passes or only documented non-fixable risks remain.
+
+  - from: repair
+    to: verify
+    condition: The concrete repair is complete and must be re-verified.
