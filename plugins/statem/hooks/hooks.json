@@ -1,0 +1,17 @@
+{
+  "description": "Keep active StateM-managed Codex runs moving until they reach a terminal handoff state.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/hooks/statem_stop_hook.py\"",
+            "timeout": 15,
+            "statusMessage": "Checking active StateM run"
+          }
+        ]
+      }
+    ]
+  }
+}
