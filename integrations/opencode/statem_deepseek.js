@@ -55,10 +55,15 @@ function modelId(model) {
   return String(model?.id || model?.modelID || model?.modelId || "")
 }
 
-function chooseProfile(model) {
+function configuredProfile() {
   const forced = String(process.env.STATEM_DEEPSEEK_PROFILE || "auto").toLowerCase()
-  if (forced === "flash" || forced === "pro") return forced
-  if (forced !== "auto") return null
+  return forced === "flash" || forced === "pro" ? forced : null
+}
+
+function chooseProfile(model) {
+  const forced = configuredProfile()
+  if (forced) return forced
+  if (String(process.env.STATEM_DEEPSEEK_PROFILE || "auto").toLowerCase() !== "auto") return null
 
   const id = modelId(model).toLowerCase()
   if (!id.includes("deepseek")) return null
@@ -143,7 +148,8 @@ export const StateMDeepSeekPlugin = async ({ client, directory }) => {
       else output.system[0] = `${output.system[0]}\n\n${context}`
     },
 
-    "experimental.session.compacting": async (_input, output) => {
+    "experimental.session.compacting": async (input, output) => {
+      if (!sessionProfiles.has(input.sessionID) && !configuredProfile()) return
       const cur = readCurrent(directory)
       if (!cur || !Array.isArray(output.context)) return
       output.context.push(
@@ -152,14 +158,22 @@ export const StateMDeepSeekPlugin = async ({ client, directory }) => {
     },
 
     event: async ({ event }) => {
+      if (event.type === "session.deleted") {
+        const sessionID = event.properties?.info?.id || event.properties?.sessionID
+        if (sessionID) {
+          sessionProfiles.delete(sessionID)
+          runningSessions.delete(sessionID)
+        }
+        return
+      }
       if (event.type !== "session.idle") return
       const sessionID = event.properties?.sessionID
       if (!sessionID || runningSessions.has(sessionID)) return
 
+      const activeProfile = sessionProfiles.get(sessionID) || configuredProfile()
+      if (!activeProfile) return
       const cur0 = readCurrent(directory)
       if (!cur0) return
-      const forcedProfile = String(process.env.STATEM_DEEPSEEK_PROFILE || "auto").toLowerCase()
-      const activeProfile = sessionProfiles.get(sessionID) || (forcedProfile === "pro" ? "pro" : "flash")
       if (TERMINAL_STATES.has(cur0.current) || nextNames(cur0).length === 0) return
 
       runningSessions.add(sessionID)
