@@ -59,27 +59,30 @@ Run the generated `/compact` instruction through the host UI, then recover with
 `statem cur` and `statem history --tail 10`. Do not use hidden self-messaging
 to trigger compaction.
 
-Agents may inspect the full graph with `statem state`; `cur`, `next`, and
-`goto` are for disciplined execution and attention anchoring, not for hiding the
+Agents may inspect the full graph with `statem state`; `cur`, `next`, and `goto`
+are for disciplined execution and attention anchoring, not for hiding the
 runbook.
 
 ## Auto Loop Hook
 
-When the host supports a Stop hook, users may opt into auto-loop behavior with
-`integrations/hooks/statem_stop_hook.py`. The hook runs when the agent is about
-to hand control back to the user. If a statem run is active, the current node is
-not a terminal/handoff node, and there are outgoing transitions, it returns a
-continuation prompt that tells the agent to inspect `statem cur` and keep
-working from the current node.
+When this skill is installed through the bundled Codex plugin, the plugin also
+registers `hooks/hooks.json`. Once the user reviews and trusts that plugin hook,
+the Stop hook can keep an unfinished statem run moving after Codex would
+otherwise hand control back to the user. The bundled hook resolves its script
+from `$PLUGIN_ROOT`, so it does not depend on an absolute checkout path.
 
+For non-plugin installs or other hosts with a compatible Stop hook, users may
+opt into the same behavior with `integrations/hooks/statem_stop_hook.py`.
 Registration examples live in:
 
 - `examples/hooks/README.md`
 - `examples/hooks/codex-stop-autoloop.hooks.json`
 - `examples/hooks/claude-stop-autoloop.settings.json`
 
-Merge the matching snippet into the host hook configuration and use an absolute
-script path if the hook is registered outside the statem repository.
+The hook runs when the agent is about to hand control back to the user. If a
+statem run is active, the current node is not a terminal/handoff node, and there
+are outgoing transitions, it returns a continuation prompt that tells the agent
+to inspect `statem cur` and keep working from the current node.
 
 Treat this as host-level glue. It must not advance state, run `/clear`, or hide
 the graph. The agent should still transition only with `statem goto`.
